@@ -39,6 +39,7 @@ class PaymentExternalSystemAdapterImpl(
     private val parallelRequests = properties.parallelRequests
 
     private val client = OkHttpClient.Builder().build()
+    private val rateLimiter = FixedWindowRateLimiter(rateLimitPerSec, 1, TimeUnit.SECONDS)
     private val semaphore = Semaphore(properties.parallelRequests)
 
     override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long) {
@@ -47,8 +48,8 @@ class PaymentExternalSystemAdapterImpl(
         val transactionId = UUID.randomUUID()
         logger.info("[$accountName] Submit for $paymentId , txId: $transactionId")
 
+        rateLimiter.tickBlocking()
         semaphore.acquire()
-        logger.info("acquire: ", semaphore.queueLength.toString())
 
         // Вне зависимости от исхода оплаты важно отметить что она была отправлена.
         // Это требуется сделать ВО ВСЕХ СЛУЧАЯХ, поскольку эта информация используется сервисом тестирования.
@@ -97,7 +98,6 @@ class PaymentExternalSystemAdapterImpl(
             }
         } finally {
             semaphore.release()
-            logger.info("release: ", semaphore.queueLength.toString())
         }
     }
 
