@@ -46,12 +46,12 @@ class PaymentExternalSystemAdapterImpl(
     override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long, retries: Int) {
         logger.info("Deadline left: $deadline")
 
+        logger.warn("[$accountName] Submitting payment request for payment $paymentId")
+
         if (now() + requestAverageProcessingTime.toMillis() > deadline) {
             logger.error("[$accountName] Deadline is too close for payment $paymentId")
             return
         }
-
-        logger.warn("[$accountName] Submitting payment request for payment $paymentId")
 
         rateLimiter.tickBlocking()
         semaphore.acquire()
@@ -88,6 +88,10 @@ class PaymentExternalSystemAdapterImpl(
                 }
 
                 semaphore.release()
+
+                if (!body.result && body.message == null) {
+                    performPaymentAsync(paymentId, amount, paymentStartedAt, deadline, 0)
+                }
             }
         } catch (e: Exception) {
             when (e) {
@@ -99,7 +103,7 @@ class PaymentExternalSystemAdapterImpl(
 
                     semaphore.release()
 
-                    Thread.sleep(300)
+//                    Thread.sleep(300)
 
                     performPaymentAsync(paymentId, amount, paymentStartedAt, deadline, 0)
                 }
