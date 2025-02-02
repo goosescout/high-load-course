@@ -50,17 +50,7 @@ class PaymentExternalSystemAdapterImpl(
     private val rateLimitPerSec = properties.rateLimitPerSec
     private val parallelRequests = properties.parallelRequests
 
-    private val client = OkHttpClient.Builder().apply {
-        val dispatcher = Dispatcher(Executors.newFixedThreadPool(properties.parallelRequests))
-        dispatcher.maxRequests = properties.parallelRequests
-        dispatcher.maxRequestsPerHost = properties.parallelRequests
-        dispatcher(dispatcher)
-        connectionPool(ConnectionPool(properties.parallelRequests, 5, TimeUnit.MINUTES))
-        readTimeout(Duration.ofMillis(20_000))
-        protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
-    }.build()
     private val rateLimiter = FixedWindowRateLimiter(rateLimitPerSec, 1, TimeUnit.SECONDS)
-    private val semaphore = Semaphore(properties.parallelRequests)
 
 
     override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long, retries: Int) {
@@ -83,7 +73,7 @@ class PaymentExternalSystemAdapterImpl(
         }
 
         val request =  HttpRequest.newBuilder()
-            .uri(URI("http://localhost:1234/external/process?serviceName=${serviceName}&accountName=${accountName}&transactionId=$transactionId&paymentId=$paymentId"))
+            .uri(URI("http://localhost:1234/external/process?serviceName=${serviceName}&accountName=${accountName}&transactionId=$transactionId&paymentId=$paymentId&amount=$amount"))
             .POST(BodyPublishers.noBody())
             .build()
 
