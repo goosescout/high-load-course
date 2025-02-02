@@ -38,21 +38,29 @@ class PaymentExternalSystemAdapterImpl(
     private val rateLimitPerSec = properties.rateLimitPerSec
     private val parallelRequests = properties.parallelRequests
 
-    private val client = OkHttpClient.Builder().build()
+    private val client = OkHttpClient.Builder().readTimeout(Duration.ofMillis(1050)).build()
     private val rateLimiter = FixedWindowRateLimiter(rateLimitPerSec, 1, TimeUnit.SECONDS)
     private val semaphore = Semaphore(properties.parallelRequests)
 
-    override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long) {
-        logger.warn("[$accountName] Submitting payment request for payment $paymentId")
 
-        val transactionId = UUID.randomUUID()
-        logger.info("[$accountName] Submit for $paymentId , txId: $transactionId")
+    override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long, retries: Int) {
+        logger.info("Deadline left: $deadline")
+
+        if (now() + requestAverageProcessingTime.toMillis() > deadline) {
+            logger.error("[$accountName] Deadline is too close for payment $paymentId")
+            return
+        }
+
+        logger.warn("[$accountName] Submitting payment request for payment $paymentId")
 
         rateLimiter.tickBlocking()
         semaphore.acquire()
 
         // Вне зависимости от исхода оплаты важно отметить что она была отправлена.
         // Это требуется сделать ВО ВСЕХ СЛУЧАЯХ, поскольку эта информация используется сервисом тестирования.
+        val transactionId = UUID.randomUUID()
+        logger.info("[$accountName] Submit for $paymentId , txId: $transactionId")
+
         paymentESService.update(paymentId) {
             it.logSubmission(success = true, transactionId, now(), Duration.ofMillis(now() - paymentStartedAt))
         }
@@ -78,14 +86,22 @@ class PaymentExternalSystemAdapterImpl(
                 paymentESService.update(paymentId) {
                     it.logProcessing(body.result, now(), transactionId, reason = body.message)
                 }
+
+                semaphore.release()
             }
         } catch (e: Exception) {
             when (e) {
                 is SocketTimeoutException -> {
-                    logger.error("[$accountName] Payment timeout for txId: $transactionId, payment: $paymentId", e)
+                    logger.error("[$accountName] Payment timeout for txId: $transactionId, payment: $paymentId")
                     paymentESService.update(paymentId) {
                         it.logProcessing(false, now(), transactionId, reason = "Request timeout.")
                     }
+
+                    semaphore.release()
+
+                    Thread.sleep(300)
+
+                    performPaymentAsync(paymentId, amount, paymentStartedAt, deadline, 0)
                 }
 
                 else -> {
@@ -96,8 +112,6 @@ class PaymentExternalSystemAdapterImpl(
                     }
                 }
             }
-        } finally {
-            semaphore.release()
         }
     }
 
