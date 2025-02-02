@@ -38,7 +38,7 @@ class PaymentExternalSystemAdapterImpl(
     private val rateLimitPerSec = properties.rateLimitPerSec
     private val parallelRequests = properties.parallelRequests
 
-    private val client = OkHttpClient.Builder().readTimeout(Duration.ofMillis(1050)).build()
+    private val client = OkHttpClient.Builder().readTimeout(Duration.ofMillis(3200)).build()
     private val rateLimiter = FixedWindowRateLimiter(rateLimitPerSec, 1, TimeUnit.SECONDS)
     private val semaphore = Semaphore(properties.parallelRequests)
 
