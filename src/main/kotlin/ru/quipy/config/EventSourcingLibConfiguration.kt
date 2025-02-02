@@ -1,5 +1,6 @@
 package ru.quipy.config
 
+import org.apache.coyote.http2.Http2Protocol
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.Bean
@@ -10,7 +11,10 @@ import ru.quipy.payments.logic.PaymentAggregateState
 import ru.quipy.streams.AggregateEventStreamManager
 import java.util.*
 import javax.annotation.PostConstruct
-
+import org.eclipse.jetty.http2.server.HTTP2CServerConnectionFactory
+import org.springframework.boot.web.embedded.jetty.JettyServerCustomizer
+import org.springframework.boot.web.embedded.jetty.JettyServletWebServerFactory
+import org.springframework.boot.web.embedded.tomcat.TomcatConnectorCustomizer
 
 /**
  * This files contains some configurations that you might want to have in your project. Some configurations are
@@ -59,6 +63,29 @@ class EventSourcingLibConfiguration {
 
             onBatchRead { streamName, batchSize ->
                 logger.debug("Stream $streamName read batch size: $batchSize")
+            }
+        }
+    }
+
+    @Bean // это для Jetty
+    fun jettyServerCustomizer(): JettyServletWebServerFactory {
+        val jettyServletWebServerFactory = JettyServletWebServerFactory()
+
+        val c = JettyServerCustomizer {
+            (it.connectors[0].getConnectionFactory("h2c") as HTTP2CServerConnectionFactory).maxConcurrentStreams = 1_000_000
+        }
+
+        jettyServletWebServerFactory.serverCustomizers.add(c)
+        return jettyServletWebServerFactory
+    }
+
+    @Bean
+    fun tomcatConnectorCustomizer(): TomcatConnectorCustomizer {
+        return TomcatConnectorCustomizer {
+            try {
+                (it.protocolHandler.findUpgradeProtocols().get(0) as Http2Protocol).maxConcurrentStreams = 10_000_000
+            } catch (e: Exception) {
+                logger.error("!!! Failed to increase number of http2 streams per connection !!!")
             }
         }
     }
